@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "date": "2026-11-07",
-  "release": "0.2.0",
+  "release": "0.3.0",
   "runtime": "Windows / Python 3.13.0",
   "research_tool_version": "0.1.0",
   "actual_user_run": {
@@ -15,7 +15,14 @@
   "cost": null,
   "cost_explanation": "Подписка и токены модели среды не видны локальным инструментам. Не выдаём неизвестную стоимость за ноль.",
   "model": "LLM готовой среды Codex; точный deployment/model ID сессии не экспортирован",
-  "baseline_comparison": "Не измерено; превосходство не заявляется.",
+  "baseline_comparison": {
+    "case": "examples/export-diagnosis",
+    "plain_chat_seconds": 42,
+    "agent_seconds": 420,
+    "cost": null,
+    "scope": "One synthetic case; ordinary answer vs persisted research package. Unblinded LLM review, no general superiority established.",
+    "evidence": "evals/runs/2026-11-07-diagnosis"
+  },
   "core_tools": {
     "pydantic": "2.12.4",
     "python-docx": "1.2.0",
@@ -24,9 +31,15 @@
     "pytest": "8.4.2"
   },
   "checks": {
-    "passed": 49,
+    "passed": 88,
     "skipped": 1,
-    "skip_reason": "Нет прав на создание обычного symlink; junction проверен."
+    "skip_reason": "Нет прав на создание обычного symlink; junction проверен.",
+    "clean_install": {
+      "launcher": "START.cmd --no-open",
+      "version": "0.3.0",
+      "separate_venv": true,
+      "archived_case_valid": true
+    }
   },
   "second_case": {
     "question": "Выбор аудитории платного предложения онлайн-записи",
@@ -43,5 +56,18 @@
       "network": "5"
     },
     "human_choice": null
+  },
+  "adaptive_diagnosis_run": {
+    "mode": "diagnosis",
+    "quantitative": false,
+    "elapsed_seconds": 420.0,
+    "sources_count": 3,
+    "active_claims_count": 14,
+    "human_decisions_count": 0,
+    "cli_error_count": 0,
+    "input_or_inspection_error_count": 2,
+    "model_id": null,
+    "cost": null,
+    "fresh_process_restore": true
   }
 }

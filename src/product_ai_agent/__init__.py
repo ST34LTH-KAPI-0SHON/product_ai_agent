@@ -1,3 +1,3 @@
 """Deterministic tools; research decisions belong to the host LLM and user."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

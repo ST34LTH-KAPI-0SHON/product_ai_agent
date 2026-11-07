@@ -1,0 +1,95 @@
+{
+  "run_id": "local-export-diagnosis-030",
+  "project": "projects/local-export-diagnosis-030",
+  "mode": "diagnosis",
+  "synthetic": true,
+  "quantitative": false,
+  "started_at_utc": "2026-11-07T20:48:09Z",
+  "finished_at_utc": "2026-11-07T20:55:09Z",
+  "elapsed_seconds": 420.0,
+  "clock_source": "clock.curr_time at start and after final verification; excludes this metrics write and final response",
+  "elapsed_to_summary_seconds": 316,
+  "operational_cli_invocations": 16,
+  "cli_help_invocations": 6,
+  "cli_errors": [],
+  "cli_error_count": 0,
+  "input_or_inspection_errors": [
+    {
+      "tool": "PowerShell Get-Content",
+      "target": "CONTRACTS.md",
+      "error": "Cannot find path 'CONTRACTS.md' because it does not exist.",
+      "resolution": "Read existing docs/CONTRACTS.md; parent informed."
+    },
+    {
+      "tool": "rg",
+      "target": "src/product_ai_agent/ux.py",
+      "error": "The system cannot find the file specified. (os error 2)",
+      "resolution": "Search actual src/product_ai_agent; read schema in experience.py."
+    }
+  ],
+  "input_or_inspection_error_count": 2,
+  "display_issue": "Captured CLI warning initially rendered replacement characters in terminal; persisted UTF-8 card had 0 U+FFFD, subsequent subprocesses used PYTHONUTF8=1.",
+  "inspection_adjustments": [
+    "ZIP members have project-name prefix; archive checks normalize this prefix. No extraction or implementation repair."
+  ],
+  "tools_used": [
+    "clock.curr_time",
+    "exec_command",
+    "PowerShell Get-Content/Test-Path/rg",
+    "installed .venv/Scripts/python.exe CLI: start,save,pause,session,quality,validate,report,export",
+    "Python standard library for project draft JSON/Markdown, subprocess and archive integrity checks"
+  ],
+  "human_help_requests": 0,
+  "human_interventions": 0,
+  "human_minutes": null,
+  "human_time_note": "No human help requested; total human attention time is not measured.",
+  "model_id": null,
+  "model_id_note": "Exact runtime model ID not exposed. Environment describes Codex based on GPT-6; no more precise ID claimed.",
+  "llm_tokens": null,
+  "cost": null,
+  "currency": null,
+  "cost_note": "Host model/tool billing and tokens unavailable; unknown, not zero. CLI invokes no separate model.",
+  "sources_count": 3,
+  "active_claims_count": 14,
+  "human_decisions_count": 0,
+  "code_changed_by_this_agent": false,
+  "parent_changes_note": "Parent reported parallel implementation/docs stabilization during run; not attributed to this agent and not product evidence.",
+  "pause_restore": {
+    "pause_stage": "research",
+    "pause_status": "paused",
+    "restored_in_fresh_python_process": true,
+    "restored_mode": "diagnosis",
+    "restored_quantitative": false,
+    "continued_stage": "analysis"
+  },
+  "verification": {
+    "quality_ready": true,
+    "quality_verdict": "ready_with_limits",
+    "quality_blockers": [],
+    "evidence_status": "unknown",
+    "validation_valid": true,
+    "validation_errors": [],
+    "final_stage": "complete",
+    "final_status": "completed",
+    "final_revision": 5,
+    "pending_decision": null,
+    "fresh_process_final_session": true,
+    "portable_crc_ok": true,
+    "portable_state_matches_project": true,
+    "portable_review_matches_project": true,
+    "report_matches_project": true,
+    "archive_extraction_restore_not_performed": true
+  },
+  "reports": {
+    "html": "reports/decision.html",
+    "markdown": "reports/decision.md",
+    "analysis": "reports/analysis.md",
+    "validation_plan": "reports/validation-plan.md",
+    "run_summary": "reports/run-summary.md",
+    "readable_archive": "reports/report-7e7794c16210.zip",
+    "portable_archive": "reports/portable-11b4808f0af2.zip",
+    "verification": "drafts/verification-final.json",
+    "archive_verification": "drafts/archive-verification.json"
+  },
+  "archive_note": "Portable contains current completed state, sources and review; final verification receipts and this metrics file were written after export and are available in the live project."
+}

@@ -60,10 +60,14 @@ def parser():
         if command == "retract-claim":
             sub.add_argument("--claim", required=True)
             sub.add_argument("--reason", required=True)
-    for command in ["start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact"]:
+    for command in ["start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality"]:
         sub = commands.add_parser(command)
         sub.add_argument("--project")
         if command == "start":
+            from .routing import MODES
+            sub.add_argument("--mode", choices=MODES, default="strategy")
+            sub.add_argument("--quantitative", action="store_true")
+            sub.add_argument("--routing-reason")
             sub.add_argument("--title", default="Новое исследование")
             sub.add_argument("--question")
             sub.add_argument("--material", action="append", default=[])
@@ -91,11 +95,12 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         command = args.command
-        if command in {"start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact"}:
-            from .experience import start, session, save, choose, pause, impact
+        if command in {"start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality"}:
+            from .experience import start, session, save, choose, pause, impact, quality
             from .presentation import publish_report, doctor, export_project
             if command == "start":
-                data = start(args.project, args.title, args.question, args.material, args.allow_url, args.synthetic, args.demo)
+                data = start(args.project, args.title, args.question, args.material, args.allow_url, args.synthetic, args.demo,
+                             args.mode, args.quantitative, args.routing_reason)
             elif command == "session":
                 data = session(args.project)
             elif command == "save":
@@ -106,6 +111,8 @@ def main(argv=None):
                 data = pause(args.project)
             elif command == "impact":
                 data = impact(args.project,args.source,args.replaces)
+            elif command == "quality":
+                data = quality(args.project)
             elif command == "report":
                 data = publish_report(args.project)
             elif command == "doctor":

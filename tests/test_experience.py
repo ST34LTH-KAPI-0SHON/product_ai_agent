@@ -40,13 +40,29 @@ def brief():
         'unknowns':['Budget'],'revisit_when':['New data contradicts the input.'],'expected_effect':'Not measured.','synthetic':True}
 
 
+def quality_review():
+    return {'strongest_objection':'TEST ONLY: synthetic observations cannot establish real demand.',
+        'response_to_objection':'TEST ONLY: check real measurement before selecting an expensive action.',
+        'checks':[{'id':name,'status':'pass','explanation':'TEST ONLY: checked the limited synthetic material for this criterion.',
+                   'claim_ids':['clm-test'] if name=='evidence' else []} for name in ['evidence','alternatives','promises','next_step']],
+        'alternatives':[{'id':ident,'label':label,'action':action,'objection':'TEST ONLY: this alternative still requires real-world evidence.', 'kind':kind}
+            for ident,label,action,kind in [
+                ('keep','Keep current product','Keep the current product without a new pilot.','keep'),
+                ('improve','Small measurement pilot','Check the measurement before a limited product change.','investigate'),
+                ('pivot','Change target audience','Test a different target audience with limited resources.','change'),
+                ('close','Close the direction','Stop the current direction and document the tradeoff.','close')]],
+        'promises':[{'text':'TEST ONLY: the observed numbers differ in the provided fixture.','claim_ids':['clm-test']}],
+        'promises_applicability':'TEST ONLY: no promise of future uplift is made from synthetic observations.'}
+
+
 def await_choice(store,table):
     claim={'id':'clm-test','text':'An observed difference in TEST ONLY data.','type':'observation',
         'evidence':[{'source_id':table['id'],'locator':'record:1'}],'calculation_ids':[],
         'basis_claim_ids':[],'limitations':['TEST ONLY'],'status':'active','supersedes':None,'created_at':'2026-11-07T12:00:00Z'}
     options=[{'id':v,'label':v} for v in ['keep','improve','pivot','close']]
     update={'stage':'awaiting_decision','documents':{'brief.md':'A decision question','research-plan.md':'A useful check',
-        'reports/options.md':'Four distinct TEST alternatives'},'claims':[claim],'decision_brief':brief(),
+        'reports/analysis.md':'TEST ONLY synthetic arithmetic and limitations.',
+        'reports/options.md':'Four distinct TEST alternatives'},'claims':[claim],'decision_brief':brief(),'quality_review':quality_review(),
         'pending_decision':{'question':'TEST choice?','options':options},'next_action':'Wait for the real user choice.'}
     atomic(store.path('drafts/update.json'),encode(update))
     return save(None,'drafts/update.json')
@@ -64,9 +80,11 @@ def test_simple_user_journey(project,tmp_path):
     assert store.state()['revision']==4 and len(store.registry('claims.jsonl'))==1
     choose(None,'improve','SIMULATED TEST ONLY: choose improve')
     assert session()['stage']=='strategy'
+    assert not session()['quality']['ready']  # The pre-choice self-review cannot approve a post-choice answer.
+    with pytest.raises(AgentError):publish_report()
     update={'stage':'complete','documents':{'reports/strategy.md':'TEST product and communication strategy',
         'reports/validation-plan.md':'TEST comparison, window and guardrails','reports/run-summary.md':'TEST run; costs unknown'},
-        'decision_brief':brief(),'next_action':'Review the completed decision.'}
+        'decision_brief':brief(),'quality_review':quality_review(),'next_action':'Review the completed decision.'}
     atomic(store.path('drafts/final.json'),encode(update));save(None,'drafts/final.json')
     report=publish_report()
     text=Path(report['report']).read_text(encoding='utf-8')
@@ -82,6 +100,14 @@ def test_simple_user_journey(project,tmp_path):
     summary=export_project(None,False)
     with zipfile.ZipFile(summary['path']) as z:
         assert not any('/inputs/' in n or '/.operations/' in n or '/sources/' in n for n in z.namelist())
+    revised=brief();revised['recommendation']='TEST ONLY: a revised reviewed recommendation.'
+    update={'stage':'complete','decision_brief':revised,'quality_review':quality_review(),
+            'next_action':'Read the revised result.'}
+    atomic(store.path('drafts/revised.json'),encode(update));save(None,'drafts/revised.json')
+    # No explicit report call: export must render the current card itself.
+    fresh=export_project(None,False)
+    with zipfile.ZipFile(fresh['path']) as z:
+        assert b'a revised reviewed recommendation' in z.read('local-test/reports/decision.html')
 
 
 def test_no_choice_and_no_fake_completion(project):
@@ -146,3 +172,20 @@ def test_history_damage_is_detected(project):
     await_choice(store,table)
     atomic(store.path('checkpoints/rev-000001/files/brief.md'),b'corrupted archived brief')
     assert not validation(store)['valid']
+
+
+def test_retired_basis_remains_in_decision_history(project):
+    from product_ai_agent.workflow import check_decision, record_claim
+    store,table=project
+    await_choice(store,table)
+    choose(None,'improve','SIMULATED TEST ONLY: improve')
+    original=store.registry('decisions.jsonl')[0]
+    replacement=dict(store.registry('claims.jsonl')[0])
+    replacement.update(id='clm-corrected',supersedes='clm-test',text='TEST ONLY: a corrected observation from the same fixture.')
+    store.mutate('retire-basis','test',{},lambda:record_claim(store,replacement))
+    result=validation(store)
+    assert result['valid']
+    assert any('Historical decision' in str(w) for w in result['warnings'])
+    assert store.registry('decisions.jsonl')[0]==original
+    # A newly recorded decision cannot reuse the retired grounds.
+    with pytest.raises(AgentError):check_decision(store,original,store.registry('claims.jsonl'))

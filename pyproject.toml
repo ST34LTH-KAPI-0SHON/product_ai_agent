@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "product-ai-agent"
-version = "0.2.0"
+version = "0.3.0"
 description = "Portable product research agent tools; the host environment supplies the LLM"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10,<3", "python-docx>=1.2,<2", "openpyxl>=3.1.5,<4", "beautifulsoup4>=4.14,<5"]

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from .models import Claim, Decision, Policy, Source, State, STAGES
 from .storage import AgentError, digest, encode, fail, now, registry_bytes
+from .routing import route_config, stage_requirements
 
 
 def check_time(value):
@@ -93,7 +94,7 @@ def retract_claim(store, claim_id, reason):
     return {"claim_id": claim_id, "status": "retracted"}, {"claims.jsonl": registry_bytes(rows)}, ["Review dependent claims and reports before continuing."]
 
 
-def check_decision(store, decision, claims):
+def check_decision(store, decision, claims, historical=False):
     check_time(decision["decided_at"])
     ids = [option.get("id") for option in decision["options"]]
     if any(not x for x in ids) or len(ids) != len(set(ids)) or decision["selected_option_id"] not in ids:
@@ -110,7 +111,7 @@ def check_decision(store, decision, claims):
     else:
         fail("VALIDATION_ERROR", "Decision requires a chat quote or a file locator.")
     by_id = {c["id"]: c for c in claims}
-    if any(c not in by_id or by_id[c]["status"] != "active" for c in decision["basis_claim_ids"]):
+    if any(c not in by_id or (not historical and by_id[c]["status"] != "active") for c in decision["basis_claim_ids"]):
         fail("VALIDATION_ERROR", "Decision uses a missing or inactive claim.")
 
 
@@ -130,7 +131,7 @@ def record_decision(store, raw):
     return {"decision_id": decision["id"]}, {"decisions.jsonl": registry_bytes(rows)}, ["The validator checks structure; a reviewer must verify that the quoted response is real."]
 
 
-def validation(store, state=None, ignore_operation=None):
+def validation(store, state=None, ignore_operation=None, enforce_quality=True):
     errors, warnings = [], []
 
     def attempt(label, callback):
@@ -141,6 +142,7 @@ def validation(store, state=None, ignore_operation=None):
             return None
 
     state = attempt("state.json", lambda: State.model_validate(state or store.json("state.json")).model_dump())
+    route = attempt("request.json:route", lambda: route_config(store))
     attempt("policy.json", lambda: Policy.model_validate(store.json("policy.json")))
     sources = attempt("sources.jsonl", lambda: store.registry("sources.jsonl"))
     claims = attempt("claims.jsonl", lambda: store.registry("claims.jsonl"))
@@ -175,7 +177,10 @@ def validation(store, state=None, ignore_operation=None):
     attempt("claim-dependencies", lambda: [visit(node, set(), set()) for node in graph])
     for decision in decisions or []:
         attempt(f"decision-schema:{decision.get('id')}", lambda d=decision: Decision.model_validate(d))
-        attempt(f"decision-links:{decision.get('id')}", lambda d=decision: check_decision(store, d, claims or []))
+        attempt(f"decision-links:{decision.get('id')}", lambda d=decision: check_decision(store, d, claims or [], historical=True))
+        inactive = {c["id"] for c in claims or [] if c["status"] != "active"}
+        if inactive.intersection(decision.get("basis_claim_ids", [])):
+            warnings.append("Historical decision uses retired grounds; review its current applicability: " + decision["id"])
     for path in store.path("calculations").glob("*/result.json"):
         rel = path.relative_to(store.root).as_posix()
         def check_calc():
@@ -204,44 +209,64 @@ def validation(store, state=None, ignore_operation=None):
                 if digest(store.read(base+'/files/'+name))!=expected:
                     fail('VALIDATION_ERROR','Checkpoint file checksum mismatch: '+name)
         attempt(relative,check_checkpoint)
-    if state:
+    if state and route:
         def stages():
             check_time(state["updated_at"])
+            plan = route["stages"]
+            if state["stage"] not in plan:
+                fail("VALIDATION_ERROR", "The current stage is outside the saved task route.")
             completed = state["completed_stages"]
-            if completed != STAGES[:len(completed)] or len(completed) > STAGES.index(state["stage"]) + 1:
+            if completed != plan[:len(completed)] or len(completed) > plan.index(state["stage"]) + 1:
                 fail("VALIDATION_ERROR", "completed_stages must be an ordered prefix consistent with the current stage.")
-            if state["stage"] != "complete" and len(completed) != STAGES.index(state["stage"]):
+            if state["stage"] != "complete" and len(completed) != plan.index(state["stage"]):
                 fail("VALIDATION_ERROR", "Finish previous stages before advancing.")
-            required = {"brief": ["brief.md"], "research": ["research-plan.md"],
-                        "options": ["reports/options.md"], "strategy": ["reports/strategy.md"],
-                        "complete": ["reports/strategy.md", "reports/validation-plan.md", "reports/run-summary.md"]}
+            required = stage_requirements(route)
             for stage in completed:
                 for artifact in required.get(stage, []):
                     if not store.read(artifact).strip():
                         fail("VALIDATION_ERROR", f"Empty stage artifact: {artifact}")
             if "research" in completed and not sources:
                 fail("VALIDATION_ERROR", "Research needs imported sources.")
-            if "analysis" in completed and (not claims or not list(store.path("calculations").glob("*/result.json"))):
-                fail("VALIDATION_ERROR", "Analysis needs claims and a saved calculation.")
+            if "analysis" in completed:
+                if not any(c["status"] == "active" for c in claims or []):
+                    fail("VALIDATION_ERROR", "Analysis needs active sourced claims.")
+                if route["quantitative"] and not list(store.path("calculations").glob("*/result.json")):
+                    fail("VALIDATION_ERROR", "A quantitative analysis needs a saved calculation.")
             if state["stage"] == "awaiting_decision":
                 question = state["pending_decision"] or {}
                 options = question.get("options", [])
-                if not question.get("question") or len(options) < 4 or len({o.get('id') for o in options}) != len(options):
-                    fail("VALIDATION_ERROR", "Awaiting decision requires a question and four distinct option IDs.")
+                if not question.get("question") or len(options) < route["minimum_options"] or len({o.get('id') for o in options}) != len(options):
+                    fail("VALIDATION_ERROR", "Awaiting decision requires a question and enough distinct option IDs for the route.")
                 if state["status"] != "awaiting_user":
                     fail("VALIDATION_ERROR", "Awaiting decision must use awaiting_user status.")
-            if STAGES.index(state["stage"]) >= STAGES.index("strategy") and not decisions:
+            if "strategy" in plan and plan.index(state["stage"]) >= plan.index("strategy") and not decisions:
                 fail("VALIDATION_ERROR", "Strategy needs a recorded human decision.")
             if state["stage"] != "awaiting_decision" and state["pending_decision"] is not None:
                 fail("VALIDATION_ERROR", "Clear pending_decision after moving past the choice.")
             if state["status"] == "completed" or state["stage"] == "complete":
-                if state["status"] != "completed" or completed != STAGES or state["stage"] != "complete":
+                if state["status"] != "completed" or completed != plan or state["stage"] != "complete":
                     fail("VALIDATION_ERROR", "Completion requires all stages and complete/completed.")
-                if {s["kind"] for s in sources or []} != {"document", "table", "web"}:
+                if route["legacy"] and {s["kind"] for s in sources or []} != {"document", "table", "web"}:
                     fail("VALIDATION_ERROR", "Complete V0 requires document, table and real web sources.")
             for name, path in state["artifacts"].items():
                 store.read(path)
         attempt("workflow", stages)
+        if route["quality_required"] and state["stage"] in {"awaiting_decision", "strategy", "complete"}:
+            def check_quality():
+                from .quality import evaluate_review
+                card = store.json("reports/decision-brief.json")
+                quality = evaluate_review(store, card, route["mode"])
+                if not quality["ready"]:
+                    if enforce_quality and state["stage"] != "strategy":
+                        fail("VALIDATION_ERROR", str(quality["blockers"]))
+                    warnings.append("Recommendation needs quality review: " + str(quality["blockers"]))
+                warnings.extend(quality["warnings"])
+                if state["stage"] == "awaiting_decision" and quality.get("assessment"):
+                    reviewed = {item["id"] for item in quality["assessment"]["alternatives"]}
+                    proposed = {item.get("id") for item in (state["pending_decision"] or {}).get("options", [])}
+                    if reviewed != proposed:
+                        fail("VALIDATION_ERROR", "The human choice must contain the alternatives covered by the quality review.")
+            attempt("recommendation-quality", check_quality)
     return {"valid": not errors, "errors": errors, "warnings": warnings,
             "scope": "Structural integrity and reproducible calculations; semantic quality and real user consent require review."}
 
@@ -253,7 +278,10 @@ def checkpoint(store, raw, expected_revision, operation_id):
     candidate = State.model_validate(raw).model_dump()
     if candidate["project_id"] != old["project_id"] or candidate["revision"] != expected_revision:
         fail("REVISION_CONFLICT", "Candidate must retain project ID and current revision.")
-    delta = STAGES.index(candidate["stage"]) - STAGES.index(old["stage"])
+    plan = route_config(store)["stages"]
+    if candidate["stage"] not in plan or old["stage"] not in plan:
+        fail("VALIDATION_ERROR", "Checkpoint stage is outside the saved task route.")
+    delta = plan.index(candidate["stage"]) - plan.index(old["stage"])
     if delta > 1:
         fail("VALIDATION_ERROR", "Checkpoint cannot skip stages.")
     if delta < 0 and not candidate["transition_reason"]:
@@ -272,6 +300,8 @@ def checkpoint(store, raw, expected_revision, operation_id):
     base = f"checkpoints/rev-{candidate['revision']:06}"
     writes = {"state.json": encode(candidate), f"{base}/state.json": encode(candidate)}
     snapshot_files = ["sources.jsonl", "claims.jsonl", "decisions.jsonl", "operations.jsonl", "policy.json"]
+    if store.path("request.json").is_file():
+        snapshot_files.append("request.json")
     snapshot_files += list(dict.fromkeys(candidate["artifacts"].values()))
     hashes = {}
     for path in snapshot_files:
@@ -283,11 +313,13 @@ def checkpoint(store, raw, expected_revision, operation_id):
 
 
 def resume(store):
-    report = validation(store)
+    report = validation(store, enforce_quality=False)
     if not report["valid"]:
         fail("VALIDATION_ERROR", str(report["errors"]))
     state = store.state()
     paths = ["state.json", "sources.jsonl", "claims.jsonl", "decisions.jsonl"]
+    if store.path("request.json").is_file():
+        paths.append("request.json")
     paths += [p for p in ["brief.md", "research-plan.md"] if store.path(p).is_file()]
     paths += list(state["artifacts"].values())
     paths += [s["extracted_path"] for s in store.registry("sources.jsonl")]

@@ -15,8 +15,10 @@ from . import __version__
 from .experience import DecisionBrief, LABELS, active_project, check_brief, operation
 from .storage import Store, digest, encode, fail, no_links
 from .workflow import validation
+from .routing import route_config
+from .quality import evaluate_review
 
-CSS = """+:root{--ink:#172c39;--muted:#526675;--green:#b9ef65;--line:#dce5e4;--paper:#f3f6f2}
+CSS = """:root{--ink:#172c39;--muted:#526675;--green:#b9ef65;--line:#dce5e4;--paper:#f3f6f2}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 'Segoe UI',Arial,sans-serif}
 button,a{touch-action:manipulation}a{color:#15684d}button:focus-visible,a:focus-visible{outline:3px solid #318b6a;outline-offset:4px}
 .wrap{max-width:1180px;margin:auto;padding:0 32px}header{background:#112e38;color:white;padding:28px 0 50px}
@@ -93,8 +95,29 @@ def decision_markdown(brief):
     return "\n".join(lines) + "\n"
 
 
+def quality_markdown(review):
+    lines = ["## Проверка рекомендации", "", review["scope"], ""]
+    if not review["ready"]:
+        lines += ["Проверка не завершена или устарела."] + ["- " + row["message"] for row in review["blockers"]]
+    assessment = review.get("assessment")
+    if assessment:
+        names = {"evidence": "Основания", "alternatives": "Альтернативы", "promises": "Обещания", "next_step": "Следующий шаг"}
+        statuses = {"pass": "проверено агентом", "unknown": "есть ограничение", "revise": "нужна доработка"}
+        lines += ["", "### Сильнейшее возражение", assessment["strongest_objection"],
+                  "", "### Как учтено возражение", assessment["response_to_objection"], ""]
+        lines += ["- " + names[row["id"]] + " — " + statuses[row["status"]] + ": " + row["explanation"] for row in assessment["checks"]]
+        lines += ["", "### Рассмотренные действия"]
+        lines += ["- **" + row["label"] + "**: " + row["action"] + " Возражение: " + row["objection"] for row in assessment["alternatives"]]
+        lines += ["", "### Границы обещаний", assessment["promises_applicability"]]
+        lines += ["- " + row["text"] + " (" + ", ".join(row["claim_ids"]) + ")" for row in assessment["promises"]]
+    lines += ["- Ограничение: " + row["message"] for row in review["warnings"]]
+    return "\n".join(lines) + "\n"
+
+
 def report_html(store, brief):
     state = store.state(); b = brief.model_dump()
+    route = route_config(store)
+    quality = evaluate_review(store, b, route["mode"])
     sources = store.registry("sources.jsonl"); claims = store.registry("claims.jsonl"); decisions = store.registry("decisions.jsonl")
     steps = "".join(f"<div class='step'><span class='step-number'>{i}</span><div><strong>{esc(s['action'])}</strong><span class='small'>{esc(s['when'])} · {esc(s['owner'] or 'Ответственного нужно назначить')}</span><p>{esc(s['deliverable'])}</p></div></div>" for i,s in enumerate(b["first_steps"],1))
     claim_numbers = {c['id']:i for i,c in enumerate(claims,1)}
@@ -111,6 +134,8 @@ def report_html(store, brief):
             shown = format((Decimal(group['value'])*100).normalize(),'f')+'%' if spec['units']=='proportion' else group['value']+' '+spec['units']
             calc_rows.append(f"<tr><td>{esc(spec['metric_name'])}</td><td>{esc(', '.join(str(v) for v in group['group'].values()) or 'Все записи')}</td><td class='metric'>{esc(shown)}</td><td>{esc(group.get('numerator') or '—')} / {esc(group.get('denominator') or '—')}</td></tr>")
     choice = "<p>Выбор пользователя ещё не получен. Рекомендация агента не заменяет решение.</p>"
+    if route["mode"] == "diagnosis":
+        choice = "<p>Завершена диагностика. Разработка, расходы и запуск изменений этим исследованием не утверждены.</p>"
     if decisions:
         d = decisions[-1]
         label = next(o.get('label',o['id']) for o in d['options'] if o['id']==d['selected_option_id'])
@@ -118,11 +143,17 @@ def report_html(store, brief):
     notice = "<div class='notice'>Учебный кейс. Числа и продуктовые сведения отмечены как синтетические. Проверяем способ работы агента; реальный эффект не заявляется.</div>" if b['synthetic'] else ""
     if store.path('review.json').is_file() and store.json('review.json').get('status')=='pending':
         notice="<div class='notice'><strong>Есть новые данные.</strong> Ниже показано предыдущее решение. Его основания требуют пересмотра; не считайте рекомендацию актуальной до проверки.</div>"+notice
+    if route["legacy"] and not quality["ready"]:
+        notice += "<div class='notice'>Сохранённый проект прежней версии. Содержательная самопроверка версии 0.3 для него не проводилась.</div>"
+    plan_title = "Диагностика и проверка" if route["mode"] == "diagnosis" else "Стратегия и проверка"
+    plan_content = doc('reports/analysis.md') if route["mode"] == "diagnosis" else doc('reports/strategy.md')
+    option_history = "" if route["mode"] == "diagnosis" else "<details><summary>Сохранённое сравнение вариантов</summary><div class='prose'>" + doc('reports/options.md') + "</div></details>"
     return f"""<!doctype html><html lang='ru'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='referrer' content='no-referrer'><title>{esc(b['title'])} — Product AI Agent</title><style>{CSS}</style></head>
-<body><header><div class='wrap'><div class='topline'><div class='brand'><span class='mark'>↗</span>Product AI Agent</div><span class='version'>Карточка решения · {__version__}</span></div><div class='eyebrow'>От вопроса к следующему действию</div><h1>{esc(b['title'])}</h1><p class='subtitle'>Рекомендация, основания и план — в одном месте. Подробности доступны ниже.</p><span class='tag'>{esc(LABELS[state['stage']])}</span><span class='tag'>{len(sources)} источника · {len(claims)} оснований</span></div></header>
-<main><div class='wrap'>{notice}<nav class='tabs' aria-label='Разделы отчёта'><button class='tab' data-panel='overview' aria-selected='true'>Решение за минуту</button><button class='tab' data-panel='plan' aria-selected='false'>Стратегии и проверка</button><button class='tab' data-panel='evidence' aria-selected='false'>Основания</button><button class='tab' data-panel='trace' aria-selected='false'>Ход работы</button></nav>
+<body><header><div class='wrap'><div class='topline'><div class='brand'><span class='mark'>↗</span>Product AI Agent</div><span class='version'>Карточка решения · {__version__}</span></div><div class='eyebrow'>От вопроса к следующему действию</div><h1>{esc(b['title'])}</h1><p class='subtitle'>Рекомендация, основания и план — в одном месте. Подробности доступны ниже.</p><span class='tag'>{esc(route['label'])}</span><span class='tag'>{len(sources)} источника · {len(claims)} оснований</span></div></header>
+<main><div class='wrap'>{notice}<nav class='tabs' aria-label='Разделы отчёта'><button class='tab' data-panel='overview' aria-selected='true'>Решение за минуту</button><button class='tab' data-panel='plan' aria-selected='false'>{plan_title}</button><button class='tab' data-panel='quality' aria-selected='false'>Проверка рекомендации</button><button class='tab' data-panel='evidence' aria-selected='false'>Основания</button><button class='tab' data-panel='trace' aria-selected='false'>Ход работы</button></nav>
 <section id='overview' class='panel'><div class='grid'><div><article class='card hero-card'><div class='label'>Что делать</div><p class='recommendation'>{esc(b['recommendation'])}</p></article><article class='card'><div class='label'>Почему это разумно</div>{reasons}</article><article class='card'><div class='label'>Первые действия</div>{steps}</article></div><aside><article class='card'><div class='label'>Насколько надёжен вывод</div><p>{esc(b['confidence'])}</p></article><article class='card'><div class='label'>Чего пока не делать</div>{items(b['do_not'])}</article><article class='card'><div class='label'>Как поймём результат</div><p>{esc(b['success_rule'])}</p><p class='small'>{esc(b['expected_effect'])}</p></article><article class='card'><div class='label'>Решение владельца</div>{choice}</article></aside></div><article class='card'><h2>Что ещё нужно решить</h2>{items(b['unknowns'])}<h3>Когда вернуться к рекомендации</h3>{items(b['revisit_when'])}</article></section>
-<section id='plan' class='panel' hidden><article class='card prose'>{doc('reports/strategy.md')}</article><article class='card prose'>{doc('reports/validation-plan.md')}</article><details><summary>История сравнения вариантов до выбора</summary><p class='small'>Это сохранённый документ предыдущего этапа. Актуальное решение владельца показано на главной вкладке.</p><div class='prose'>{doc('reports/options.md')}</div></details></section>
+<section id='plan' class='panel' hidden><article class='card prose'>{plan_content}</article><article class='card prose'>{doc('reports/validation-plan.md')}</article>{option_history}</section>
+<section id='quality' class='panel' hidden><article class='card prose'>{markdown(quality_markdown(quality))}</article></section>
 <section id='evidence' class='panel' hidden><article class='card'><h2>Воспроизводимые расчёты</h2><p class='small'>Доли показаны в процентах. Исходные суммы, группы и параметры сохранены вместе с расчётом.</p><div class='table-scroll'><table><tr><th>Расчёт</th><th>Группа</th><th>Результат</th><th>Числитель / знаменатель</th></tr>{''.join(calc_rows)}</table></div></article><h2>Утверждения и ограничения</h2>{evidence}<article class='card'><h2>Первичные материалы</h2><div class='table-scroll'><table><tr><th>Источник</th><th>Происхождение</th><th>Откуда получен</th></tr>{source_rows}</table></div></article></section>
 <section id='trace' class='panel' hidden><article class='card prose'>{doc('reports/run-summary.md')}</article></section><footer>Product AI Agent · Сформировано по сохранённым файлам · {esc(state['updated_at'])}<br>Условия пересмотра сохранены. Новые данные обрабатываются по запросу пользователя.<p><button class='print' onclick='window.print()'>Печать / сохранить PDF</button></p></footer></div></main>
 <script>document.querySelectorAll('[data-panel]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.panel)));function show(id){{document.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!==id);document.querySelectorAll('[data-panel]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.panel===id)));}}document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',()=>{{const d=document.getElementById(a.hash.slice(1));if(d&&d.tagName==='DETAILS'){{show('evidence');d.open=true;}}}}));</script></body></html>"""
@@ -134,8 +165,12 @@ def publish_report(project=None):
     if not report['valid']: fail('VALIDATION_ERROR', 'Перед выдачей отчёта нужно исправить целостность исследования.')
     brief = DecisionBrief.model_validate(store.json('reports/decision-brief.json')); check_brief(store, brief)
     params = {'renderer_version':__version__, 'revision':store.state()['revision'], 'brief':brief.model_dump(),
-              'documents':{p:digest(store.read(p)) for p in ['reports/strategy.md','reports/options.md','reports/validation-plan.md','reports/run-summary.md'] if store.path(p).is_file()}}
-    writes = {'reports/decision.md':decision_markdown(brief).encode(), 'reports/decision.html':report_html(store,brief).encode()}
+              'documents':{p:digest(store.read(p)) for p in ['reports/analysis.md','reports/strategy.md','reports/options.md','reports/validation-plan.md','reports/run-summary.md','reports/quality-review.json'] if store.path(p).is_file()}}
+    route = route_config(store)
+    quality = evaluate_review(store, brief.model_dump(), route['mode'])
+    if route['quality_required'] and not quality['ready']:
+        fail('VALIDATION_ERROR', 'Перед выдачей рекомендации требуется актуальная содержательная самопроверка.')
+    writes = {'reports/decision.md':(decision_markdown(brief)+'\n'+quality_markdown(quality)).encode(), 'reports/decision.html':report_html(store,brief).encode()}
     params['render_sha256'] = digest(writes['reports/decision.html'])
     store.mutate(operation('report',params),'report',params,lambda:({'report':'reports/decision.html'},writes,[]))
     return {'title':brief.title,'recommendation':brief.recommendation,'report':str(root/'reports/decision.html'),
@@ -157,8 +192,11 @@ def doctor(project=None):
 
 def export_project(project=None, include_sources=False):
     root=active_project(project); store=Store(root)
-    check=validation(store)
+    check=validation(store, enforce_quality=not include_sources)
     if not check['valid']: fail('VALIDATION_ERROR','Нельзя упаковать повреждённое исследование.')
+    if not include_sources:
+        # Regenerate from the current reviewed card, never ship an older rendered answer.
+        publish_report(str(root))
     payloads={}
     if include_sources:
         for directory, dirs, files in os.walk(root,followlinks=False):
@@ -173,6 +211,7 @@ def export_project(project=None, include_sources=False):
             if path.suffix in {'.md','.html'}: payloads[path.relative_to(root).as_posix()]=store.read(path.relative_to(root).as_posix())
         if store.path('brief.md').is_file(): payloads['brief.md']=store.read('brief.md')
     manifest={'schema_version':1,'portable':include_sources,'project_id':store.state()['project_id'],
+              'review_warnings':check['warnings'],
               'version':__version__,'files':{name:digest(data) for name,data in payloads.items()}}
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
