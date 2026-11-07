@@ -14,7 +14,7 @@
 
 [Посмотреть готовый результат](demo/decision.html) · [Короткая инструкция](START_HERE.md) · [Комплект для сдачи](submission/README.md)
 
-![Карточка решения](docs/assets/decision-preview.jpg)
+[![Краткая карточка учебного решения: показатели и рекомендация](docs/assets/decision-preview.png)](demo/decision.md)
 
 ## Что вы получите
 
