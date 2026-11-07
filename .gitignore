@@ -1,0 +1,40 @@
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+
+# Python and tools
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Local editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Never put unreviewed user data into version control.
+projects/local-*/
+projects/**/private/
+projects/**/inputs/
+projects/**/sources/
+projects/**/drafts/
+
+# Files above are excluded by default, but reports/registries/checkpoints
+# may also contain personal or sensitive information. Review every diff.
+# A reviewed, public demo fixture can be explicitly tracked when approved.
