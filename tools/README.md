@@ -1,7 +1,7 @@
 # Технические инструменты
 
-Реализация пока отсутствует. Это место для описания и примеров использования инструментов; устанавливаемый Python-пакет следует создать в `src/product_ai_agent/`, не дублировать код здесь.
+Пакет 0.1.0 реализован в src/product_ai_agent/. Установка и запуск: [START_HERE](../START_HERE.md). Контракты: [CONTRACTS](../docs/CONTRACTS.md). Использование агентом: [instructions/tools.md](../instructions/tools.md).
 
-Задания: [HANDOFF_TEMUR](../docs/HANDOFF_TEMUR.md). Интерфейсы: [CONTRACTS](../docs/CONTRACTS.md).
+Команды: init, status, resume, validate, ingest-file, ingest-url, profile-table, aggregate, record-claim, record-decision, checkpoint, configure, write-artifact, retract-claim, recover. Справка: python -m product_ai_agent --help и <команда> --help.
 
-Первым реализуется B01: CLI, `init`, `status`, базовая валидация и честная инструкция установки. Не добавлять README с якобы работающими командами до проверки. Входы CLI не должны требовать отдельного API-ключа LLM.
+Состояние проверок и ограничения — [STATUS](../docs/STATUS.md). Структурная валидация не подтверждает качество стратегии; полная приёмка V0 ещё не завершена.

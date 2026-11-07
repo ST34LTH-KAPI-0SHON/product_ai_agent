@@ -1,0 +1,5 @@
+period,channel,eligible_users,activated_7d,complete_window
+2026-09,organic,100,60,true
+2026-09,paid,100,20,true
+2026-10,organic,50,30,true
+2026-10,paid,150,30,true
