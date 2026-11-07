@@ -8,6 +8,12 @@ credentials*.json
 
 # Python and tools
 .venv/
+.venv-*/
+.agent/
+inbox/*
+!inbox/README.md
+/demo/local-*/
+/submission/*.mp4
 venv/
 __pycache__/
 *.py[cod]

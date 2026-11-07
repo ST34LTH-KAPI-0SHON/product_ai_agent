@@ -1,0 +1,5 @@
+---
+description: Product AI Agent user experience and research workflow
+alwaysApply: true
+---
+Read AGENTS.md. Default to product research via instructions/product.md. Change implementation only for an explicit development request. Use the local tools, preserve evidence and state, and keep technical details out of the product manager's conversation.
