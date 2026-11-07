@@ -84,7 +84,8 @@ def test_simple_user_journey(project,tmp_path):
     with pytest.raises(AgentError):publish_report()
     update={'stage':'complete','documents':{'reports/strategy.md':'TEST product and communication strategy',
         'reports/validation-plan.md':'TEST comparison, window and guardrails','reports/run-summary.md':'TEST run; costs unknown'},
-        'decision_brief':brief(),'quality_review':quality_review(),'next_action':'Review the completed decision.'}
+        'decision_brief':brief(),'quality_review':quality_review(),'next_action':'Review the completed decision.',
+        'change_reason':'TEST ONLY: the real simulated choice is now reflected in the prepared plan.'}
     atomic(store.path('drafts/final.json'),encode(update));save(None,'drafts/final.json')
     report=publish_report()
     text=Path(report['report']).read_text(encoding='utf-8')
@@ -102,7 +103,7 @@ def test_simple_user_journey(project,tmp_path):
         assert not any('/inputs/' in n or '/.operations/' in n or '/sources/' in n for n in z.namelist())
     revised=brief();revised['recommendation']='TEST ONLY: a revised reviewed recommendation.'
     update={'stage':'complete','decision_brief':revised,'quality_review':quality_review(),
-            'next_action':'Read the revised result.'}
+            'next_action':'Read the revised result.','change_reason':'TEST ONLY: the reviewed recommendation was explicitly revised.'}
     atomic(store.path('drafts/revised.json'),encode(update));save(None,'drafts/revised.json')
     # No explicit report call: export must render the current card itself.
     fresh=export_project(None,False)

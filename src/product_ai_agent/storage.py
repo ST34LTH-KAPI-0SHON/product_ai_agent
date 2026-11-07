@@ -178,7 +178,7 @@ class Store:
                 for item in manifest["writes"]:
                     if not self.path(item["target"]).is_file():
                         fail("VALIDATION_ERROR", f"Operation output missing: {item['target']}")
-                    if item["target"].startswith(("sources/", "calculations/")) and digest(self.read(item["target"])) != item["sha256"]:
+                    if item["target"].startswith(("sources/", "calculations/", "versions/", "follow-up/")) and digest(self.read(item["target"])) != item["sha256"]:
                         fail("VALIDATION_ERROR", f"Immutable output changed: {item['target']}")
                 return events[-1]["result"]
             if self.pending():

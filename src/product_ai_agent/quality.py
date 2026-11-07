@@ -117,6 +117,9 @@ def subject_sha256(store, brief, mode):
         "sources": sorted(store.registry("sources.jsonl"), key=lambda row: row["id"]),
         "decisions": store.registry("decisions.jsonl"),
     }
+    request = _optional_read(store, "request.json")
+    if request is not None and "depth" in (task := json.loads(request)):
+        material["task_route"] = {key: task.get(key) for key in ("workflow_mode", "depth", "quantitative", "question", "routing_reason")}
     return digest(json.dumps(material, ensure_ascii=False, sort_keys=True,
                              separators=(",", ":"), allow_nan=False).encode("utf-8"))
 

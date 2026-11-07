@@ -60,7 +60,7 @@ def parser():
         if command == "retract-claim":
             sub.add_argument("--claim", required=True)
             sub.add_argument("--reason", required=True)
-    for command in ["start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality"]:
+    for command in ["start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality", "now", "track", "versions", "changes", "expand"]:
         sub = commands.add_parser(command)
         sub.add_argument("--project")
         if command == "start":
@@ -68,6 +68,7 @@ def parser():
             sub.add_argument("--mode", choices=MODES, default="strategy")
             sub.add_argument("--quantitative", action="store_true")
             sub.add_argument("--routing-reason")
+            sub.add_argument("--depth", choices=["quick", "full"])
             sub.add_argument("--title", default="Новое исследование")
             sub.add_argument("--question")
             sub.add_argument("--material", action="append", default=[])
@@ -76,6 +77,15 @@ def parser():
             sub.add_argument("--demo", action="store_true")
         if command == "save":
             sub.add_argument("--input", required=True)
+        if command == "track":
+            sub.add_argument("--input", required=True)
+        if command == "changes":
+            sub.add_argument("--from", dest="from_version")
+            sub.add_argument("--to", dest="to_version")
+        if command == "expand":
+            from .routing import MODES
+            sub.add_argument("--mode", choices=MODES)
+            sub.add_argument("--reason", required=True)
         if command == "choose":
             sub.add_argument("--option", required=True)
             sub.add_argument("--quote", required=True)
@@ -95,12 +105,13 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         command = args.command
-        if command in {"start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality"}:
-            from .experience import start, session, save, choose, pause, impact, quality
+        if command in {"start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact", "quality", "now", "track", "versions", "changes", "expand"}:
+            from .experience import start, session, save, choose, pause, impact, quality, now_view, track, expand, active_project
             from .presentation import publish_report, doctor, export_project
             if command == "start":
                 data = start(args.project, args.title, args.question, args.material, args.allow_url, args.synthetic, args.demo,
-                             args.mode, args.quantitative, args.routing_reason)
+                             args.mode, args.quantitative, args.routing_reason,
+                             args.depth or ("quick" if args.mode == "diagnosis" and not args.demo else "full"))
             elif command == "session":
                 data = session(args.project)
             elif command == "save":
@@ -113,6 +124,17 @@ def main(argv=None):
                 data = impact(args.project,args.source,args.replaces)
             elif command == "quality":
                 data = quality(args.project)
+            elif command == "now":
+                data = now_view(args.project)
+            elif command == "track":
+                data = track(args.project, args.input)
+            elif command == "expand":
+                data = expand(args.project, args.mode, args.reason)
+            elif command in {"versions", "changes"}:
+                from .versions import list_versions, compare
+                study = Store(active_project(args.project))
+                resume(study)
+                data = list_versions(study) if command == "versions" else compare(study, args.from_version, args.to_version)
             elif command == "report":
                 data = publish_report(args.project)
             elif command == "doctor":

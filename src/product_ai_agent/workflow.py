@@ -143,6 +143,10 @@ def validation(store, state=None, ignore_operation=None, enforce_quality=True):
 
     state = attempt("state.json", lambda: State.model_validate(state or store.json("state.json")).model_dump())
     route = attempt("request.json:route", lambda: route_config(store))
+    from .followup import validate_tracking
+    from .versions import validate_versions
+    attempt("tasks.json", lambda: validate_tracking(store))
+    attempt("versions.jsonl", lambda: validate_versions(store))
     attempt("policy.json", lambda: Policy.model_validate(store.json("policy.json")))
     sources = attempt("sources.jsonl", lambda: store.registry("sources.jsonl"))
     claims = attempt("claims.jsonl", lambda: store.registry("claims.jsonl"))
@@ -228,6 +232,8 @@ def validation(store, state=None, ignore_operation=None, enforce_quality=True):
             if "research" in completed and not sources:
                 fail("VALIDATION_ERROR", "Research needs imported sources.")
             if "analysis" in completed:
+                if route["compact"] and not sources:
+                    fail("VALIDATION_ERROR", "A short diagnosis still requires relevant imported evidence.")
                 if not any(c["status"] == "active" for c in claims or []):
                     fail("VALIDATION_ERROR", "Analysis needs active sourced claims.")
                 if route["quantitative"] and not list(store.path("calculations").glob("*/result.json")):

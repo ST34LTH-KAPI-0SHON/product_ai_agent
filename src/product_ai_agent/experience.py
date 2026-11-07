@@ -60,6 +60,7 @@ class Update(BaseModel):
     next_action: str = Field(min_length=1)
     review_resolution: str | None = None
     quality_review: dict | None = None
+    change_reason: str | None = Field(default=None, min_length=10, max_length=1600)
 
 
 class Overlay(Store):
@@ -123,16 +124,21 @@ def session(value=None):
     from .quality import evaluate_review
     quality = {**evaluate_review(store, summary, route["mode"]), "required": route["quality_required"]} if summary else None
     progress = "Диагностика и план проверки готовы" if route["mode"] == "diagnosis" and state["stage"] == "complete" else LABELS[state["stage"]]
+    from .followup import next_actions
+    current = next_actions(store, summary, quality)
+    if route["compact"] and quality:
+        quality = {k: v for k, v in quality.items() if k != "assessment"}
     return {"project": root.relative_to(Path.cwd()).as_posix(),
             "stage": state["stage"], "status": state["status"], "next_action": state["next_action"],
             "pending_decision": state["pending_decision"], "decision_brief": summary,
             "open_questions": state["open_questions"], "read_paths": context["read_paths"], "needs_review":needs_review,"review":review,
             "route": route, "quality": quality, "progress": 'Появились новые данные — нужно проверить решение' if needs_review else progress,
-            "instruction": "Read instructions/product.md. Speak plainly; keep tool details out of user-facing replies."}
+            "now": {**current, "tasks": [{k: t[k] for k in ("id", "action", "status", "owner", "due_at", "overdue", "needs_recheck")} for t in current["tasks"][:5]]},
+            "instruction": "Read instructions/quick.md for quick depth, otherwise instructions/product.md. Speak plainly; keep tool details out of user-facing replies."}
 
 
 def start(project=None, title="Новое исследование", question=None, materials=(), allowed_urls=(), synthetic=False, demo=False,
-          mode="strategy", quantitative=False, routing_reason=None):
+          mode="strategy", quantitative=False, routing_reason=None, depth="full"):
     from .web import canonical
     if demo:
         question = question or "Почему снизилась активация и какое действие выбрать для продукта?"
@@ -142,7 +148,7 @@ def start(project=None, title="Новое исследование", question=No
         synthetic = True
     if not question or not question.strip():
         fail("INVALID_INPUT", "Нужен вопрос или решение, с которым требуется помощь.")
-    route = TaskRoute(workflow_mode=mode, quantitative=quantitative or demo,
+    route = TaskRoute(workflow_mode=mode, quantitative=quantitative or demo, depth=depth,
                       routing_reason=routing_reason or ("Полная стратегия для сквозного демо." if demo else "Процесс выбран средой по цели задачи: " + str(mode)))
     # Inspect all explicit input files before creating a project. No arbitrary folder scans.
     prepared = []
@@ -172,6 +178,8 @@ def start(project=None, title="Новое исследование", question=No
         fail("INVALID_INPUT", "Этот проект уже начат. Используйте session для продолжения или другое имя.")
     request = {"title": title, "question": question, "synthetic": synthetic, "created_at": now(), **route.model_dump()}
     writes = {"request.json": encode(request), "inputs/request.md": ("# Задача\n\n" + question + "\n").encode()}
+    if depth == "quick":
+        writes["brief.md"] = ("# Короткая диагностика\n\n" + question.strip() + "\n\nПодход: " + route.routing_reason + "\n\nРезультат — ограниченная рекомендация; изменение продукта и бюджет этим не утверждаются.\n").encode("utf-8")
     writes.update({"inputs/" + name: data for name, data in prepared})
     policy = store.policy(); policy["allowed_urls"] = urls
     writes["policy.json"] = encode(policy)
@@ -184,7 +192,11 @@ def start(project=None, title="Новое исследование", question=No
         result = store.mutate(op, "ingest-file", params, lambda n=name: ingest_file(store, "inputs/" + n, provenance="synthetic" if synthetic else "user_provided"))
         sources.append(result["data"])
     set_active(root)
-    return {**session(str(root)), "imported_sources": sources, "allowed_urls": urls,
+    preview = {}
+    if depth == "quick":
+        from .quick import material_preview
+        preview["materials_preview"] = material_preview(store)
+    return {**session(str(root)), "imported_sources": sources, "allowed_urls": urls, **preview,
             "message": "Материалы подготовлены. Агент прочитает их и уточнит только то, что влияет на решение."}
 
 
@@ -226,7 +238,13 @@ def save(project, input_path):
             writes.update(changes)
         if update.decision_brief:
             check_brief(overlay, update.decision_brief)
+            if route["compact"]:
+                from .quick import check_compact
+                check_compact(update.decision_brief)
             writes["reports/decision-brief.json"] = encode(update.decision_brief.model_dump())
+        if route["compact"] and "reports/run-summary.md" not in writes:
+            from .quick import tool_receipt
+            writes["reports/run-summary.md"] = tool_receipt(store).encode("utf-8")
         if update.quality_review is not None:
             from .quality import prepare_review
             card = overlay.json("reports/decision-brief.json")
@@ -239,6 +257,10 @@ def save(project, input_path):
         # The host can save several completed stages in one validated transaction.
         # Each intermediate checkpoint is still verified and archived.
         indices = list(range(current + 1, target + 1)) or [current]
+        if update.stage in {"awaiting_decision", "complete"}:
+            from .versions import prepare_versions
+            writes.update(prepare_versions(store, overlay, update.change_reason,
+                                          old["revision"] + len(indices), require_reason=route["versioned"]))
         for index in indices:
             state = overlay.state()
             stage = plan[index]
@@ -251,6 +273,8 @@ def save(project, input_path):
                 state["artifacts"]["decision_brief"] = "reports/decision-brief.json"
             if "reports/quality-review.json" in writes or store.path("reports/quality-review.json").is_file():
                 state["artifacts"]["quality_review"] = "reports/quality-review.json"
+            if "versions.jsonl" in writes or store.path("versions.jsonl").is_file():
+                state["artifacts"]["decision_versions"] = "versions.jsonl"
             _, changes, _ = checkpoint(overlay, state, state["revision"], op)
             writes.update(changes)
         return {"stage": update.stage, "revision": overlay.state()["revision"]}, writes, []
@@ -311,6 +335,51 @@ def quality(project=None):
                 "blockers": [{"code": "missing_card", "message": "Рекомендация ещё не подготовлена."}],
                 "warnings": [], "scope": "Сначала подготовить карточку, затем выполнить содержательную самопроверку."}
     return {**evaluate_review(store, card, route["mode"]), "required": route["quality_required"], "legacy": route["legacy"]}
+
+
+def now_view(project=None):
+    store = Store(active_project(project))
+    resume(store)
+    from .followup import next_actions
+    card = store.json("reports/decision-brief.json") if store.path("reports/decision-brief.json").is_file() else None
+    return next_actions(store, card, quality(project) if card else None)
+
+
+def track(project, input_path):
+    store = Store(active_project(project))
+    resume(store)
+    raw = store.json(input_path)
+    from .followup import prepare_tracking
+    from .versions import current_reference
+    store.mutate(operation("track", raw), "track", raw, lambda: prepare_tracking(store, raw, current_reference(store)))
+    return now_view(str(store.root))
+
+
+def expand(project=None, mode=None, reason=None):
+    root = active_project(project)
+    store = Store(root)
+    resume(store)
+    route = route_config(store)
+    if not route["compact"] or not reason or len(reason.strip()) < 10:
+        fail("INVALID_INPUT", "Расширение нужно для короткого разбора и требует содержательной причины.")
+    old = store.state()
+    request = store.json("request.json")
+    selected = TaskRoute(workflow_mode=mode or route["mode"], quantitative=route["quantitative"],
+                         depth="full", routing_reason=reason)
+    raw = {"revision": old["revision"], "mode": selected.workflow_mode, "reason": reason}
+    op = operation("expand", raw)
+    def action():
+        writes = {f"request-history/rev-{old['revision']:06}.json": encode(request),
+                  "request.json": encode({**request, **selected.model_dump()})}
+        overlay = Overlay(root, writes)
+        candidate = dict(old)
+        candidate.update(stage="research", status="running", completed_stages=["brief"], pending_decision=None,
+                         transition_reason=reason, next_action="Углубить исследование: " + reason)
+        _, changes, warnings = checkpoint(overlay, candidate, old["revision"], op)
+        writes.update(changes)
+        return {"expanded": True}, writes, warnings
+    store.mutate(op, "expand", raw, action)
+    return session(str(root))
 
 
 def impact(project,source_id,replaces):

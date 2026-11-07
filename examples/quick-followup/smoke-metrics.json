@@ -1,0 +1,122 @@
+{
+  "version": "0.4.0",
+  "synthetic": true,
+  "benchmark": false,
+  "note": "Familiar-case tooling smoke; prepared by the developer, not a blind end-to-end LLM speed measurement.",
+  "first_result_cli_calls": [
+    {
+      "command": "start",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "save",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "report",
+      "seconds": null,
+      "ok": true
+    }
+  ],
+  "all_cli_calls": [
+    {
+      "command": "start",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "save",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "report",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "track",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "report",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "ingest-file",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "impact",
+      "seconds": null,
+      "ok": true
+    },
+    {
+      "command": "save",
+      "seconds": 1.139,
+      "ok": true
+    },
+    {
+      "command": "report",
+      "seconds": 0.631,
+      "ok": true
+    },
+    {
+      "command": "changes",
+      "seconds": 0.482,
+      "ok": true
+    },
+    {
+      "command": "now",
+      "seconds": 0.504,
+      "ok": true
+    },
+    {
+      "command": "validate",
+      "seconds": 0.451,
+      "ok": true
+    },
+    {
+      "command": "export",
+      "seconds": 0.981,
+      "ok": true
+    }
+  ],
+  "claims_first_result": 3,
+  "source_formats": [
+    "document"
+  ],
+  "first_result_optional_reports_written": 0,
+  "cost": null,
+  "model_id": null,
+  "portable_archive": "portable-c908ff22a800.zip",
+  "current_primary": {
+    "kind": "review_tasks",
+    "action": "Сверить обязательства с новой версией рекомендации.",
+    "reason": "Часть задач согласована на прежних основаниях."
+  },
+  "versions": [
+    "v0001",
+    "v0002"
+  ],
+  "harness_errors": [
+    {
+      "type": "inspection",
+      "field": "extracted_path",
+      "cli_error": false,
+      "resolution": "Read the imported source record by source_id; continued the same saved project without repeating imports."
+    },
+    {
+      "type": "harness-resume",
+      "field": "ev helper",
+      "cli_error": false,
+      "resolution": "Restored the missing helper in the inspection script; no project operation had run during this failed attempt."
+    }
+  ],
+  "early_cli_wall_times": "Unavailable after harness interruption; not replaced with zero."
+}

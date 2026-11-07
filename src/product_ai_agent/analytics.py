@@ -77,7 +77,7 @@ def matches(row, filters):
 def aggregate(store, source_id, raw_spec, tool_version=None):
     # User-experience releases do not reinterpret saved calculation receipts.
     tool_version = tool_version or __version__
-    if tool_version not in {"0.1.0", "0.2.0", "0.3.0"}:
+    if tool_version not in {"0.1.0", "0.2.0", "0.3.0", "0.4.0"}:
         fail("VALIDATION_ERROR", "Unsupported calculation version; do not silently reinterpret old results.")
     spec = Calculation.model_validate(raw_spec)
     source, table = table_for(store, source_id, spec.sheet)

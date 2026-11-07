@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "date": "2026-11-07",
-  "release": "0.3.0",
+  "date": "2026-11-08",
+  "release": "0.4.0",
   "runtime": "Windows / Python 3.13.0",
   "research_tool_version": "0.1.0",
   "actual_user_run": {
@@ -31,14 +31,16 @@
     "pytest": "8.4.2"
   },
   "checks": {
-    "passed": 88,
+    "passed": 109,
     "skipped": 1,
     "skip_reason": "Нет прав на создание обычного symlink; junction проверен.",
     "clean_install": {
+      "version": "0.4.0",
       "launcher": "START.cmd --no-open",
-      "version": "0.3.0",
       "separate_venv": true,
-      "archived_case_valid": true
+      "restored_study_valid": true,
+      "versions_restored": 2,
+      "commitments_restored": true
     }
   },
   "second_case": {
@@ -69,5 +71,23 @@
     "model_id": null,
     "cost": null,
     "fresh_process_restore": true
+  },
+  "daily_workflow_smoke": {
+    "artifact": "examples/quick-followup/smoke-metrics.json",
+    "first_result_commands": [
+      "start",
+      "save",
+      "report"
+    ],
+    "independent_llm_benchmark": false,
+    "money": null,
+    "initial_claims": 3,
+    "versions": [
+      "v0001",
+      "v0002"
+    ],
+    "synthetic_confirmations": true,
+    "harness_errors": 2,
+    "cli_errors": 0
   }
 }

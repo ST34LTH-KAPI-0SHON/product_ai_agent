@@ -7,6 +7,7 @@ import platform
 import re
 import sys
 import zipfile
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -17,6 +18,8 @@ from .storage import Store, digest, encode, fail, no_links
 from .workflow import validation
 from .routing import route_config
 from .quality import evaluate_review
+from .followup import next_actions
+from .versions import compare, list_versions
 
 CSS = """:root{--ink:#172c39;--muted:#526675;--green:#b9ef65;--line:#dce5e4;--paper:#f3f6f2}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 'Segoe UI',Arial,sans-serif}
@@ -42,6 +45,10 @@ details{border:1px solid var(--line);background:white;border-radius:12px;padding
 
 def esc(value):
     return html.escape(str(value), quote=True)
+
+
+def human_time(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%d.%m.%Y %H:%M %z")
 
 
 def inline(text):
@@ -114,10 +121,61 @@ def quality_markdown(review):
     return "\n".join(lines) + "\n"
 
 
+def changes_markdown(change):
+    lines = ["## Что изменилось", ""]
+    if not change["has_previous"]:
+        return "\n".join(lines + [change["message"]]) + "\n"
+    lines += [f"Версии: {change['from']} → {change['to']}", "", "### Раньше", change["recommendation"]["before"],
+              "", "### Сейчас", change["recommendation"]["after"], "", "### Почему изменено", change["explanation"], ""]
+    for label, rows in [("Добавлены основания", change["grounds"]["added"]), ("Больше не используются", change["grounds"]["removed"])]:
+        if rows:
+            lines += ["### " + label] + ["- " + row["text"] for row in rows] + [""]
+    if change["grounds"]["updated"]:
+        lines += ["### Уточнены основания"] + ["- Было: " + row["before"]["text"] + " Теперь: " + row["after"]["text"] for row in change["grounds"]["updated"]] + [""]
+    if change["choice_changed"]: lines.append("- Изменилось сохранённое решение человека.")
+    if change["sources_changed"]: lines.append("- Изменились источники, на которые опирается вывод.")
+    if change["steps_changed"]: lines.append("- Изменился план следующих действий.")
+    lines += ["- Новая неопределённость: " + s for s in change["unknowns_added"]]
+    lines += ["- Снята неопределённость: " + s for s in change["unknowns_removed"]]
+    lines += ["- Обновлён документ: " + p for p in change["updated_documents"]]
+    return "\n".join(lines + ["", change["scope"]]) + "\n"
+
+
+def now_markdown(view):
+    labels = {"proposed": "предложено", "open": "согласовано", "done": "выполнено", "cancelled": "отменено"}
+    lines = ["## Что делать сейчас", "", view["primary"]["action"], view["primary"]["reason"], ""]
+    for task in view["tasks"]:
+        prefix = "учебное подтверждение: " if task.get("confirmation_kind") == "synthetic" else ""
+        line = "- " + task["action"] + " — " + prefix + labels[task["status"]] + "; " + (task.get("owner") or "ответственного назначить")
+        line += "; срок: " + (human_time(task["due_at"]) if task.get("due_at") else task.get("when") or "не назначен")
+        if task["overdue"]: line += "; ПРОСРОЧЕНО"
+        if task["needs_recheck"]: line += "; сверить с новым решением"
+        if task.get("blocked_reason"): line += "; препятствие: " + task["blocked_reason"]
+        lines.append(line)
+    return "\n".join(lines + ["", "Список обновлён: " + human_time(view["snapshot_at"]), view["note"]]) + "\n"
+
+
+def now_html(view):
+    labels = {"proposed": "Предложено", "open": "Согласовано", "done": "Выполнено", "cancelled": "Отменено"}
+    rows = []
+    for task in view["tasks"]:
+        overdue = "" if task["overdue"] else " hidden"
+        due = task.get("due_at") or ""
+        hints = ("Сверить с новым решением. " if task["needs_recheck"] else "") + (task.get("blocked_reason") or "")
+        shown_due = human_time(due) if due else task.get('when') or 'Срок не назначен'
+        status_label = ('Учебное подтверждение: ' if task.get('confirmation_kind') == 'synthetic' else '') + labels[task['status']]
+        rows.append(f"<tr data-task-status='{esc(task['status'])}' data-task-due='{esc(due)}'><td>{esc(task['action'])}<p class='small'>{esc(task['deliverable'])}</p>{esc(hints)}</td><td>{esc(task.get('owner') or 'Назначить')}<br>{esc(status_label)}</td><td>{esc(shown_due)}<strong class='late'{overdue}> Срок прошёл</strong></td></tr>")
+    table = "<details><summary>Предложения и обязательства (" + str(len(rows)) + ")</summary><div class='table-scroll'><table><tr><th>Действие и результат</th><th>Ответственный / статус</th><th>Срок</th></tr>" + "".join(rows) + "</table></div></details>" if rows else ""
+    return "<article class='card' id='next-actions'><h2>Что делать сейчас</h2><p><strong>" + esc(view["primary"]["action"]) + "</strong></p><p>" + esc(view["primary"]["reason"]) + "</p>" + table + "<p class='small'>Список обновлён: " + esc(human_time(view["snapshot_at"])) + ". Просрочка пересчитывается при открытии. Изменения статуса сообщите агенту.</p></article>"
+
+
 def report_html(store, brief):
     state = store.state(); b = brief.model_dump()
     route = route_config(store)
     quality = evaluate_review(store, b, route["mode"])
+    current = next_actions(store, b, {**quality, "required": route["quality_required"]})
+    delta = compare(store)
+    versions = list_versions(store)
     sources = store.registry("sources.jsonl"); claims = store.registry("claims.jsonl"); decisions = store.registry("decisions.jsonl")
     steps = "".join(f"<div class='step'><span class='step-number'>{i}</span><div><strong>{esc(s['action'])}</strong><span class='small'>{esc(s['when'])} · {esc(s['owner'] or 'Ответственного нужно назначить')}</span><p>{esc(s['deliverable'])}</p></div></div>" for i,s in enumerate(b["first_steps"],1))
     claim_numbers = {c['id']:i for i,c in enumerate(claims,1)}
@@ -147,16 +205,23 @@ def report_html(store, brief):
         notice += "<div class='notice'>Сохранённый проект прежней версии. Содержательная самопроверка версии 0.3 для него не проводилась.</div>"
     plan_title = "Диагностика и проверка" if route["mode"] == "diagnosis" else "Стратегия и проверка"
     plan_content = doc('reports/analysis.md') if route["mode"] == "diagnosis" else doc('reports/strategy.md')
+    validation_content = doc('reports/validation-plan.md')
+    if route["compact"]:
+        plan_title = "Следующая проверка"
+        plan_content = "<h2>План проверки</h2>" + steps
+        validation_content = "<h2>Как оценить результат</h2><p>" + esc(b["success_rule"]) + "</p><h3>Когда пересмотреть</h3>" + items(b["revisit_when"])
+    version_list = "".join("<li>" + esc(v["id"]) + " · " + esc(v["recorded_at"]) + " · " + esc(v["title"]) + "</li>" for v in versions)
     option_history = "" if route["mode"] == "diagnosis" else "<details><summary>Сохранённое сравнение вариантов</summary><div class='prose'>" + doc('reports/options.md') + "</div></details>"
     return f"""<!doctype html><html lang='ru'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='referrer' content='no-referrer'><title>{esc(b['title'])} — Product AI Agent</title><style>{CSS}</style></head>
 <body><header><div class='wrap'><div class='topline'><div class='brand'><span class='mark'>↗</span>Product AI Agent</div><span class='version'>Карточка решения · {__version__}</span></div><div class='eyebrow'>От вопроса к следующему действию</div><h1>{esc(b['title'])}</h1><p class='subtitle'>Рекомендация, основания и план — в одном месте. Подробности доступны ниже.</p><span class='tag'>{esc(route['label'])}</span><span class='tag'>{len(sources)} источника · {len(claims)} оснований</span></div></header>
-<main><div class='wrap'>{notice}<nav class='tabs' aria-label='Разделы отчёта'><button class='tab' data-panel='overview' aria-selected='true'>Решение за минуту</button><button class='tab' data-panel='plan' aria-selected='false'>{plan_title}</button><button class='tab' data-panel='quality' aria-selected='false'>Проверка рекомендации</button><button class='tab' data-panel='evidence' aria-selected='false'>Основания</button><button class='tab' data-panel='trace' aria-selected='false'>Ход работы</button></nav>
-<section id='overview' class='panel'><div class='grid'><div><article class='card hero-card'><div class='label'>Что делать</div><p class='recommendation'>{esc(b['recommendation'])}</p></article><article class='card'><div class='label'>Почему это разумно</div>{reasons}</article><article class='card'><div class='label'>Первые действия</div>{steps}</article></div><aside><article class='card'><div class='label'>Насколько надёжен вывод</div><p>{esc(b['confidence'])}</p></article><article class='card'><div class='label'>Чего пока не делать</div>{items(b['do_not'])}</article><article class='card'><div class='label'>Как поймём результат</div><p>{esc(b['success_rule'])}</p><p class='small'>{esc(b['expected_effect'])}</p></article><article class='card'><div class='label'>Решение владельца</div>{choice}</article></aside></div><article class='card'><h2>Что ещё нужно решить</h2>{items(b['unknowns'])}<h3>Когда вернуться к рекомендации</h3>{items(b['revisit_when'])}</article></section>
-<section id='plan' class='panel' hidden><article class='card prose'>{plan_content}</article><article class='card prose'>{doc('reports/validation-plan.md')}</article>{option_history}</section>
+<main><div class='wrap'>{notice}<nav class='tabs' aria-label='Разделы отчёта'><button class='tab' data-panel='overview' aria-selected='true'>Решение за минуту</button><button class='tab' data-panel='plan' aria-selected='false'>{plan_title}</button><button class='tab' data-panel='quality' aria-selected='false'>Проверка рекомендации</button><button class='tab' data-panel='evidence' aria-selected='false'>Основания</button><button class='tab' data-panel='changes' aria-selected='false'>Что изменилось</button><button class='tab' data-panel='trace' aria-selected='false'>Ход работы</button></nav>
+<section id='overview' class='panel'>{now_html(current)}<div class='grid'><div><article class='card hero-card'><div class='label'>Что делать</div><p class='recommendation'>{esc(b['recommendation'])}</p></article><article class='card'><div class='label'>Почему это разумно</div>{reasons}</article><article class='card'><div class='label'>Первые действия</div>{steps}</article></div><aside><article class='card'><div class='label'>Насколько надёжен вывод</div><p>{esc(b['confidence'])}</p></article><article class='card'><div class='label'>Чего пока не делать</div>{items(b['do_not'])}</article><article class='card'><div class='label'>Как поймём результат</div><p>{esc(b['success_rule'])}</p><p class='small'>{esc(b['expected_effect'])}</p></article><article class='card'><div class='label'>Решение владельца</div>{choice}</article></aside></div><article class='card'><h2>Что ещё нужно решить</h2>{items(b['unknowns'])}<h3>Когда вернуться к рекомендации</h3>{items(b['revisit_when'])}</article></section>
+<section id='plan' class='panel' hidden><article class='card prose'>{plan_content}</article><article class='card prose'>{validation_content}</article>{option_history}</section>
 <section id='quality' class='panel' hidden><article class='card prose'>{markdown(quality_markdown(quality))}</article></section>
 <section id='evidence' class='panel' hidden><article class='card'><h2>Воспроизводимые расчёты</h2><p class='small'>Доли показаны в процентах. Исходные суммы, группы и параметры сохранены вместе с расчётом.</p><div class='table-scroll'><table><tr><th>Расчёт</th><th>Группа</th><th>Результат</th><th>Числитель / знаменатель</th></tr>{''.join(calc_rows)}</table></div></article><h2>Утверждения и ограничения</h2>{evidence}<article class='card'><h2>Первичные материалы</h2><div class='table-scroll'><table><tr><th>Источник</th><th>Происхождение</th><th>Откуда получен</th></tr>{source_rows}</table></div></article></section>
+<section id='changes' class='panel' hidden><article class='card prose'>{markdown(changes_markdown(delta))}</article><details><summary>Сохранённые версии</summary><ul>{version_list}</ul></details></section>
 <section id='trace' class='panel' hidden><article class='card prose'>{doc('reports/run-summary.md')}</article></section><footer>Product AI Agent · Сформировано по сохранённым файлам · {esc(state['updated_at'])}<br>Условия пересмотра сохранены. Новые данные обрабатываются по запросу пользователя.<p><button class='print' onclick='window.print()'>Печать / сохранить PDF</button></p></footer></div></main>
-<script>document.querySelectorAll('[data-panel]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.panel)));function show(id){{document.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!==id);document.querySelectorAll('[data-panel]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.panel===id)));}}document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',()=>{{const d=document.getElementById(a.hash.slice(1));if(d&&d.tagName==='DETAILS'){{show('evidence');d.open=true;}}}}));</script></body></html>"""
+<script>document.querySelectorAll('[data-panel]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.panel)));function show(id){{document.querySelectorAll('.panel').forEach(p=>p.hidden=p.id!==id);document.querySelectorAll('[data-panel]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.panel===id)));}}document.querySelectorAll('a[href^="#"]').forEach(a=>a.addEventListener('click',()=>{{const d=document.getElementById(a.hash.slice(1));if(d&&d.tagName==='DETAILS'){{show('evidence');d.open=true;}}}}));function refreshDeadlines(){{document.querySelectorAll('[data-task-due]').forEach(row=>{{const due=Date.parse(row.dataset.taskDue);const open=['open','proposed'].includes(row.dataset.taskStatus);row.querySelector('.late').hidden=!(open&&Number.isFinite(due)&&due<Date.now());}});}}refreshDeadlines();</script></body></html>"""
 
 
 def publish_report(project=None):
@@ -170,7 +235,9 @@ def publish_report(project=None):
     quality = evaluate_review(store, brief.model_dump(), route['mode'])
     if route['quality_required'] and not quality['ready']:
         fail('VALIDATION_ERROR', 'Перед выдачей рекомендации требуется актуальная содержательная самопроверка.')
-    writes = {'reports/decision.md':(decision_markdown(brief)+'\n'+quality_markdown(quality)).encode(), 'reports/decision.html':report_html(store,brief).encode()}
+    current = next_actions(store, brief.model_dump(), {**quality, 'required':route['quality_required']})
+    delta = compare(store)
+    writes = {'reports/decision.md':(decision_markdown(brief)+'\n'+now_markdown(current)+'\n'+changes_markdown(delta)+'\n'+quality_markdown(quality)).encode(), 'reports/decision.html':report_html(store,brief).encode()}
     params['render_sha256'] = digest(writes['reports/decision.html'])
     store.mutate(operation('report',params),'report',params,lambda:({'report':'reports/decision.html'},writes,[]))
     return {'title':brief.title,'recommendation':brief.recommendation,'report':str(root/'reports/decision.html'),

@@ -10,7 +10,11 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.3.0"
+if sys.version_info >= (3, 11):
+    import tomllib
+    VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+else:
+    VERSION = "Python 3.11+ required"
 PROMPTS = {
     "demo": "Запусти демонстрацию Product AI Agent. Прочитай instructions/product.md. Создай новое учебное исследование через start --demo; разрешаю https://basecamp.com/ как открытый источник. Сам выполни технические действия, покажи понятный вывод и дождись моего выбора направления. Код не изменяй.",
     "new": "Начать новую задачу с Product AI Agent. Прочитай instructions/product.md. Спроси, какое решение мне нужно принять и какие материалы я могу дать. Используй папку inbox, только если я явно подтвержу её материалы. Код не изменяй.",
