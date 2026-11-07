@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-07",
+  "release": "0.2.0",
+  "runtime": "Windows / Python 3.13.0",
+  "research_tool_version": "0.1.0",
+  "actual_user_run": {
+    "operations": 29,
+    "sources": 4,
+    "claims": 6,
+    "calculations": 2,
+    "wall_seconds_including_pauses": 1493.4,
+    "sum_cli_operation_seconds": 4.109
+  },
+  "cost": null,
+  "cost_explanation": "Подписка и токены модели среды не видны локальным инструментам. Не выдаём неизвестную стоимость за ноль.",
+  "model": "LLM готовой среды Codex; точный deployment/model ID сессии не экспортирован",
+  "baseline_comparison": "Не измерено; превосходство не заявляется.",
+  "core_tools": {
+    "pydantic": "2.12.4",
+    "python-docx": "1.2.0",
+    "openpyxl": "3.1.5",
+    "beautifulsoup4": "4.14.3",
+    "pytest": "8.4.2"
+  },
+  "checks": {
+    "passed": 49,
+    "skipped": 1,
+    "skip_reason": "Нет прав на создание обычного symlink; junction проверен."
+  },
+  "second_case": {
+    "question": "Выбор аудитории платного предложения онлайн-записи",
+    "stage": "awaiting_decision",
+    "calculations": 2,
+    "paid_conversion": {
+      "solo": "10%",
+      "studio": "40%",
+      "network": "40%"
+    },
+    "support_per_trial": {
+      "solo": "0.2",
+      "studio": "0.6",
+      "network": "5"
+    },
+    "human_choice": null
+  }
+}

@@ -185,13 +185,25 @@ def validation(store, state=None, ignore_operation=None):
             if result["source_sha256"] != source["sha256"]:
                 fail("VALIDATION_ERROR", "Calculation source hash changed.")
             check_time(result["created_at"])
-            recalculated, _, _ = aggregate(store, result["source_id"], store.json(result["spec_path"]))
+            recalculated, _, _ = aggregate(store, result["source_id"], store.json(result["spec_path"]), tool_version=result["tool_version"])
             if recalculated["calculation_id"] != result["id"] or recalculated["path"] != rel:
                 fail("VALIDATION_ERROR", "Calculation identity or result path changed.")
         attempt(rel, check_calc)
     pending = attempt("operations.jsonl", store.pending)
     if any(e["operation_id"] != ignore_operation for e in pending or []):
         errors.append({"location": "operations.jsonl", "message": "Unfinished operation requires recovery."})
+    for manifest_path in store.path('checkpoints').glob('*/manifest.json'):
+        relative=manifest_path.relative_to(store.root).as_posix()
+        def check_checkpoint(rel=relative):
+            manifest=store.json(rel)
+            base=str(manifest_path.parent.relative_to(store.root)).replace('\\','/')
+            saved=store.json(base+'/state.json')
+            if saved['revision']!=manifest['revision']:
+                fail('VALIDATION_ERROR','Checkpoint revision mismatch.')
+            for name,expected in manifest['hashes'].items():
+                if digest(store.read(base+'/files/'+name))!=expected:
+                    fail('VALIDATION_ERROR','Checkpoint file checksum mismatch: '+name)
+        attempt(relative,check_checkpoint)
     if state:
         def stages():
             check_time(state["updated_at"])

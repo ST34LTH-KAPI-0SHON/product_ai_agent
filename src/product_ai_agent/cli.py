@@ -60,6 +60,27 @@ def parser():
         if command == "retract-claim":
             sub.add_argument("--claim", required=True)
             sub.add_argument("--reason", required=True)
+    for command in ["start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact"]:
+        sub = commands.add_parser(command)
+        sub.add_argument("--project")
+        if command == "start":
+            sub.add_argument("--title", default="Новое исследование")
+            sub.add_argument("--question")
+            sub.add_argument("--material", action="append", default=[])
+            sub.add_argument("--allow-url", action="append", default=[])
+            sub.add_argument("--synthetic", action="store_true")
+            sub.add_argument("--demo", action="store_true")
+        if command == "save":
+            sub.add_argument("--input", required=True)
+        if command == "choose":
+            sub.add_argument("--option", required=True)
+            sub.add_argument("--quote", required=True)
+            sub.add_argument("--actor")
+        if command == "export":
+            sub.add_argument("--include-sources", action="store_true")
+        if command == "impact":
+            sub.add_argument("--source",required=True)
+            sub.add_argument("--replaces",required=True)
     return root
 
 
@@ -70,6 +91,30 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         command = args.command
+        if command in {"start", "session", "save", "choose", "report", "doctor", "export", "pause", "impact"}:
+            from .experience import start, session, save, choose, pause, impact
+            from .presentation import publish_report, doctor, export_project
+            if command == "start":
+                data = start(args.project, args.title, args.question, args.material, args.allow_url, args.synthetic, args.demo)
+            elif command == "session":
+                data = session(args.project)
+            elif command == "save":
+                data = save(args.project, args.input)
+            elif command == "choose":
+                data = choose(args.project, args.option, args.quote, args.actor)
+            elif command == "pause":
+                data = pause(args.project)
+            elif command == "impact":
+                data = impact(args.project,args.source,args.replaces)
+            elif command == "report":
+                data = publish_report(args.project)
+            elif command == "doctor":
+                data = doctor(args.project)
+                if not data["ready"]:
+                    return emit(False, data, {"code": "VALIDATION_ERROR", "message": "Проверка готовности обнаружила проблемы.", "retryable": False}, None)
+            else:
+                data = export_project(args.project, args.include_sources)
+            return emit(True, data, None, None)
         readonly = command in {"status", "resume", "validate", "profile-table"}
         op = None if readonly else args.operation_id
         path = project_path(args.project)

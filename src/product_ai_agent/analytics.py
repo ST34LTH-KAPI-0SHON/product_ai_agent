@@ -74,7 +74,12 @@ def matches(row, filters):
     return True
 
 
-def aggregate(store, source_id, raw_spec):
+def aggregate(store, source_id, raw_spec, tool_version=None):
+    # 0.2 changes the user experience, not the calculation algorithm. Replaying
+    # an existing 0.1 receipt must preserve its identity and recorded version.
+    tool_version = tool_version or __version__
+    if tool_version not in {"0.1.0", "0.2.0"}:
+        fail("VALIDATION_ERROR", "Unsupported calculation version; do not silently reinterpret old results.")
     spec = Calculation.model_validate(raw_spec)
     source, table = table_for(store, source_id, spec.sheet)
     if spec.operation == "ratio_of_sums":
@@ -143,10 +148,10 @@ def aggregate(store, source_id, raw_spec):
                             "denominator": str(sums[1]) if spec.operation == "ratio_of_sums" else None,
                             "used_records": group["records"]})
     saved_spec = spec.model_dump()
-    calc_id = "calc-" + digest(encode({"source_id": source_id, "sha256": source["sha256"], "spec": saved_spec, "version": __version__}))[:24]
+    calc_id = "calc-" + digest(encode({"source_id": source_id, "sha256": source["sha256"], "spec": saved_spec, "version": tool_version}))[:24]
     base = f"calculations/{calc_id}"
     result = {"schema_version": 1, "id": calc_id, "source_id": source_id, "source_sha256": source["sha256"],
-              "spec_path": f"{base}/spec.json", "tool_version": __version__, "created_at": now(),
+              "spec_path": f"{base}/spec.json", "tool_version": tool_version, "created_at": now(),
               "groups": results, "excluded_records": excluded, "filtered_records": filtered,
               "warnings": ["Excluded records must be reviewed."] if excluded else []}
     if store.path(f"{base}/result.json").exists():

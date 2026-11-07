@@ -253,7 +253,11 @@ def init_project(root, op):
         fail("INVALID_INPUT", "Project already exists; use status or resume.")
     # Publish the complete initial directory in one rename on the same filesystem.
     root.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".init-", dir=root.parent))
+    # On Windows/Python 3.13 mkdtemp applies a private 0700 ACL. Renaming
+    # it would leave a sandbox-created project unreadable by the workspace owner.
+    # An unpredictable ordinary directory inherits the workspace's access rules.
+    staging = root.parent / (".init-" + uuid.uuid4().hex)
+    os.mkdir(staging, mode=0o777)
     store = Store(staging)
     for name in ["inputs", "sources", "calculations", "checkpoints", "reports", "drafts", ".operations"]:
         store.path(name).mkdir()
