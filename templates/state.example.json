@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "project_id": "example-only",
+  "revision": 0,
+  "stage": "brief",
+  "status": "running",
+  "completed_stages": [],
+  "next_action": "Заполнить бриф по реальному запросу пользователя",
+  "open_questions": [],
+  "artifacts": {},
+  "pending_decision": null,
+  "last_completed_operation_id": null,
+  "updated_at": "2026-11-07T00:00:00Z"
+}
